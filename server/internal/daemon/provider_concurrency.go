@@ -21,8 +21,9 @@ import (
 //
 // Limits come from MULTICA_<PROVIDER>_MAX_CONCURRENT_TASKS, where the
 // provider name is the runtime's provider field uppercased verbatim:
-// "claude" -> MULTICA_CLAUDE_MAX_CONCURRENT_TASKS, and a custom runtime
-// profile named "my-gpu" -> MULTICA_MY-GPU_MAX_CONCURRENT_TASKS. A provider
+// "claude" -> MULTICA_CLAUDE_MAX_CONCURRENT_TASKS, "opencode" ->
+// MULTICA_OPENCODE_MAX_CONCURRENT_TASKS. A custom runtime profile is capped
+// through its protocol family's variable, not its display name. A provider
 // with no variable set is unlimited.
 
 // providerLimitEnvVar returns the environment variable that caps the
