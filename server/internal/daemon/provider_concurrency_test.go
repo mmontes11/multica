@@ -26,8 +26,8 @@ func testProviderDaemon(t *testing.T) *Daemon {
 func TestProviderLimitEnvVar(t *testing.T) {
 	cases := map[string]string{
 		"claude": "MULTICA_CLAUDE_MAX_CONCURRENT_TASKS",
-		"my-gpu": "MULTICA_MY-GPU_MAX_CONCURRENT_TASKS",
-		" qwen ": "MULTICA_QWEN_MAX_CONCURRENT_TASKS",
+		"codex ": "MULTICA_CODEX_MAX_CONCURRENT_TASKS",
+		" opencode ": "MULTICA_OPENCODE_MAX_CONCURRENT_TASKS",
 	}
 	for provider, want := range cases {
 		if got := providerLimitEnvVar(provider); got != want {
