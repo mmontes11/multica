@@ -315,7 +315,7 @@ func loadRuntimeMcpServerConfigs(provider string) (map[string]any, bool, error) 
 		if err != nil {
 			return nil, true, err
 		}
-		if configured, ok := nestedRuntimeMcpMap(cfg, key); ok {
+		if configured, ok := runtimeMcpServersForProvider(provider, key, cfg); ok {
 			for name, entry := range configured {
 				servers[name] = normalizeRuntimeMcpEntry(provider, entry)
 			}
@@ -464,7 +464,7 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 		if err != nil {
 			return nil, true, err
 		}
-		if servers, ok := nestedRuntimeMcpMap(cfg, key); ok {
+		if servers, ok := runtimeMcpServersForProvider(provider, key, cfg); ok {
 			out = append(out, runtimeMcpSummaries(servers, source)...)
 		}
 	} else if !os.IsNotExist(err) {
@@ -543,6 +543,32 @@ func listClaudePluginMcpServers(home string) []runtimeLocalMcpServerSummary {
 		}
 	}
 	return out
+}
+
+// runtimeMcpServersForProvider resolves the user-scope MCP server map for a
+// provider. OpenCode is the only provider that stores the same field under two
+// shapes depending on which version wrote the config file, so it gets a
+// dedicated resolver; every other provider uses the dotted-key lookup.
+func runtimeMcpServersForProvider(provider, key string, cfg map[string]any) (map[string]any, bool) {
+	if provider == "opencode" {
+		return opencodeNativeMcpServers(cfg, key)
+	}
+	return nestedRuntimeMcpMap(cfg, key)
+}
+
+// opencodeNativeMcpServers returns the OpenCode user MCP server map. OpenCode
+// 1.x stores servers directly under "mcp" while 2.x nests them under
+// "mcp.servers"; the shape is decided by whichever version the user runs, so it
+// is detected from the content rather than a fixed key.
+func opencodeNativeMcpServers(cfg map[string]any, key string) (map[string]any, bool) {
+	mcp, ok := cfg[key].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	if servers, ok := mcp["servers"].(map[string]any); ok {
+		return servers, true
+	}
+	return mcp, true
 }
 
 func nestedRuntimeMcpMap(cfg map[string]any, path string) (map[string]any, bool) {
