@@ -317,6 +317,11 @@ func loadRuntimeMcpServerConfigs(provider string) (map[string]any, bool, error) 
 		}
 		if configured, ok := runtimeMcpServersForProvider(provider, key, cfg); ok {
 			for name, entry := range configured {
+				// OpenCode 2.x uses disabled, but the task adapters only read
+				// enabled. Keep disabled entries in inventory, not in task config.
+				if server, ok := entry.(map[string]any); provider == "opencode" && ok && server["disabled"] == true {
+					continue
+				}
 				servers[name] = normalizeRuntimeMcpEntry(provider, entry)
 			}
 		}
@@ -566,6 +571,14 @@ func opencodeNativeMcpServers(cfg map[string]any, key string) (map[string]any, b
 		return nil, false
 	}
 	if servers, ok := mcp["servers"].(map[string]any); ok {
+		// A flat server named "servers" has entry fields; a nested server
+		// with one of these names has an object as its value instead.
+		for _, field := range []string{"type", "url", "command", "enabled", "disabled"} {
+			switch servers[field].(type) {
+			case string, bool, []any:
+				return mcp, true
+			}
+		}
 		return servers, true
 	}
 	return mcp, true

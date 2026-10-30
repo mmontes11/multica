@@ -626,6 +626,30 @@ func TestOpencodeNativeMcpServers(t *testing.T) {
 			want:    []string{"github", "grafana"},
 		},
 		{
+			name:    "v1 local server named servers",
+			cfgJSON: `{"mcp":{"servers":{"type":"local","command":["local-mcp"]},"github":{"type":"remote","url":"https://g.example/mcp"}}}`,
+			wantOK:  true,
+			want:    []string{"servers", "github"},
+		},
+		{
+			name:    "v1 remote server named servers",
+			cfgJSON: `{"mcp":{"servers":{"type":"remote","url":"https://g.example/mcp"}}}`,
+			wantOK:  true,
+			want:    []string{"servers"},
+		},
+		{
+			name:    "v1 enabled override named servers",
+			cfgJSON: `{"mcp":{"servers":{"enabled":false}}}`,
+			wantOK:  true,
+			want:    []string{"servers"},
+		},
+		{
+			name:    "v2 server names matching entry fields",
+			cfgJSON: `{"mcp":{"servers":{"type":{"type":"local","command":["a"]},"url":{"type":"local","command":["b"]},"command":{"type":"local","command":["c"]},"enabled":{"type":"local","command":["d"]},"disabled":{"type":"local","command":["e"]}}}}`,
+			wantOK:  true,
+			want:    []string{"type", "url", "command", "enabled", "disabled"},
+		},
+		{
 			name:    "no mcp key",
 			cfgJSON: `{"$schema":"https://opencode.ai/config.json"}`,
 			wantOK:  false,
@@ -675,9 +699,7 @@ func TestOpencodeNativeMcpServers(t *testing.T) {
 	}
 }
 
-// A 2.x opencode.json must yield the real server names on the task-local merge
-// path, not a single literal "servers" entry. This is the regression that
-// blocked every opencode 2.x task from running with user MCP servers.
+// Both OpenCode layouts must yield actual server names before task-local merging.
 func TestLoadRuntimeMcpServerConfigsOpencode(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -727,6 +749,71 @@ func TestLoadRuntimeMcpServerConfigsOpencode(t *testing.T) {
 				if _, ok := servers[name]; !ok {
 					t.Fatalf("server %q missing: %#v", name, servers)
 				}
+			}
+		})
+	}
+}
+
+func TestMergeRuntimeAndAgentMcpConfigOpencodeDisabledServers(t *testing.T) {
+	cases := []struct {
+		name        string
+		agentConfig string
+		want        []string
+	}{
+		{
+			name:        "disabled runtime servers never reach the task",
+			agentConfig: `{"mcpServers":{"managed":{"command":"managed-mcp"}}}`,
+			want:        []string{"local-on", "remote-on", "managed"},
+		},
+		{
+			name:        "explicit agent entry still wins a same-name collision",
+			agentConfig: `{"mcpServers":{"local-off":{"command":"managed-override"}}}`,
+			want:        []string{"local-on", "remote-on", "local-off"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			writeOpencodeRuntimeConfig(t, `{"servers":{
+				"local-off":{"type":"local","command":["disabled-local"],"disabled":true},
+				"remote-off":{"type":"remote","url":"https://disabled.example.invalid/mcp","disabled":true},
+				"local-on":{"type":"local","command":["enabled-local"]},
+				"remote-on":{"type":"remote","url":"https://enabled.example.invalid/mcp","disabled":false}
+			}}`)
+
+			inventory, supported, err := listRuntimeLocalMcpServers("opencode")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !supported || len(inventory) != 4 {
+				t.Fatalf("supported=%v inventory=%#v", supported, inventory)
+			}
+			for _, server := range inventory {
+				wantEnabled := server.Name == "local-on" || server.Name == "remote-on"
+				if server.Enabled != wantEnabled {
+					t.Errorf("inventory server %q enabled=%v, want %v", server.Name, server.Enabled, wantEnabled)
+				}
+			}
+
+			merged, err := mergeRuntimeAndAgentMcpConfig("opencode", json.RawMessage(tc.agentConfig))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document struct {
+				Servers map[string]map[string]any `json:"mcpServers"`
+			}
+			if err := json.Unmarshal(merged, &document); err != nil {
+				t.Fatal(err)
+			}
+			if len(document.Servers) != len(tc.want) {
+				t.Fatalf("task servers=%s, want only %v", merged, tc.want)
+			}
+			for _, name := range tc.want {
+				if _, ok := document.Servers[name]; !ok {
+					t.Errorf("task server %q missing: %s", name, merged)
+				}
+			}
+			if entry, ok := document.Servers["local-off"]; ok && entry["command"] != "managed-override" {
+				t.Fatalf("agent override lost: %#v", entry)
 			}
 		})
 	}
