@@ -44,8 +44,42 @@ This keeps Docker simple while still isolating schema and data.
 
 - Node.js `22`
 - `pnpm` `10.28.2`
-- Go `1.26.6`
+- Go `1.26.9`
 - Docker
+
+Outside mobile, `pnpm typecheck` uses the native TypeScript 7 compiler (`tsc`,
+provided by the `@typescript/native` npm alias). The `typescript` dependency
+aliases `@typescript/typescript6` so ESLint, Next.js builds, and repository
+scripts retain the compatible TypeScript 6 API. Use `tsc6` to check with that
+compiler explicitly. Keep both dependencies when updating the toolchain;
+replacing the API package with TypeScript 7 breaks API consumers.
+Mobile keeps its own TypeScript dependency.
+When removing TS6 compatibility, update the `typescript` peer range in
+`packages/eslint-config/package.json` together with TypeScript API support in
+`typescript-eslint`.
+
+### Editor TypeScript SDK
+
+The compatibility package provides the compiler API but does not include
+`node_modules/typescript/lib/tsserver.js`. An existing workspace SDK selection
+or `typescript.tsdk` setting pointing to `node_modules/typescript/lib` can
+therefore become invalid or fall back to the editor's bundled TypeScript.
+
+To keep TS6 in VS Code with the repository root open:
+
+1. After `pnpm install`, set the SDK directory to
+   `node_modules/@typescript/old/lib`, the real TS6 installation in this
+   repository's pnpm layout. Use `typescript.tsdk`, or `js/ts.tsdk.path` in
+   versions using that setting name. The selected directory must contain
+   `tsserver.js`.
+2. Open a TypeScript file, run **TypeScript: Select TypeScript Version**, and
+   select the workspace version. Confirm TS6 is selected in the language
+   status item. See [VS Code's SDK selection instructions](https://code.visualstudio.com/docs/typescript/typescript-transpiling#_using-newer-typescript-versions).
+
+To use the TS7 language server instead, remove the TS6 SDK override, install
+the [official TypeScript 7 extension](https://marketplace.visualstudio.com/items?itemName=TypeScriptTeam.native-preview),
+and run **TypeScript: Enable TypeScript 7**. The editor language server is
+selected separately from the CLI compiler used by `pnpm typecheck`.
 
 ## Important Rules
 
@@ -242,6 +276,35 @@ make dev              # start (re-runs setup if needed, idempotent)
 make stop-worktree    # stop
 make check-worktree   # verify
 ```
+
+### Git Identity in Managed Task Checkouts
+
+`multica repo checkout` uses the user's system/global Git identity, including
+conditional includes evaluated in the checkout. Agent names determine branch
+names, not commit authors. The optional `Co-authored-by` trailer is independent
+of author and committer identity.
+
+Linked worktrees mask the shared cache's `user`, `author`, and `committer`
+name/email settings with private defaults in `multica-identity.config`, included
+first by their `config.worktree`. Repeating checkout refreshes these defaults;
+explicit worktree settings and Git command/environment overrides take precedence.
+Conditional identities are snapshots: switching branches or changing global
+config takes effect in these defaults on the next checkout call, not at commit time.
+Use `git config --worktree user.name "Your Name"` and
+`git config --worktree user.email "you@example.com"` for an intentional checkout
+override. Plain `git config` and `--local` write to the shared cache in linked
+worktrees. Isolated clones already have private config and retain it unchanged.
+If no user identity is configured, commits fail instead of using a stale cache
+identity; configure an explicit worktree identity before committing.
+
+Existing linked checkouts receive the protection on their next checkout call,
+including calls that keep local work. Residual shared identity is masked, not
+deleted: changing it would change other running tasks. Existing tasks that never
+repeat checkout remain unprotected until they do. Enabling `worktreeConfig`
+moves `core.bare`/`core.worktree` to the bare repository's own `config.worktree`
+without changing other worktrees' effective settings. The files are standard Git
+config; older daemons leave them in place, but do not refresh identity defaults
+or protect newly created worktrees. No pushed commit history is rewritten.
 
 ### Removing a Worktree
 
